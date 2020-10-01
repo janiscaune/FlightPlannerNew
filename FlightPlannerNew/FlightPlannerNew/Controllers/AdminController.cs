@@ -17,12 +17,7 @@ namespace FlightPlannerNew.Controllers
         [HttpGet, Route("admin-api/flights/{id}")]
         public HttpResponseMessage Flights(HttpRequestMessage message, int id)
         {
-            var flight = FlightStorage.FlightsDataBase.FirstOrDefault(x => x.Id == id);
-            if (flight == null)
-            {
-                return message.CreateResponse(HttpStatusCode.NotFound);
-            }
-            return message.CreateResponse(HttpStatusCode.OK, flight);
+            return FlightStorage.SearchFlightById(message, id);
         }
 
         [HttpPut, Route("admin-api/flights")]

@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Data.Entity;
 using System.Linq;
 using System.Net;
 using System.Net.Http;
@@ -12,40 +13,33 @@ namespace FlightPlannerNew.Models
 {
     public class FlightStorage
     {
-        public static int Id = 0;
+        
         private static object myLockObject = new object();
 
-        public static List<Flight> FlightsDataBase = new List<Flight>();
-
-        public static List<Flight> GetToList()
-        {
-            lock (myLockObject)
-            {
-                var flightsDataBaseList = FlightsDataBase.ToList();
-                return flightsDataBaseList;
-            }
-        }
+        //public static List<Flight> GetToList()
+        //{
+        //    lock (myLockObject)
+        //    {
+        //        var flightsDataBaseList = FlightsDataBase.ToList();
+        //        return flightsDataBaseList;
+        //    }
+        //}
 
         public static void ClearFLights()
         {
             lock (myLockObject)
             {
-                FlightsDataBase.Clear();
+                using (var context = new FlightsDataBaseContext())
+                {
+                    context.AirportDataBase.RemoveRange(context.AirportDataBase);
+                    context.FlightsDataBase.RemoveRange(context.FlightsDataBase);
+                    context.SaveChanges();
+                }
             }
         }
 
         public static HttpResponseMessage AddFlights(HttpRequestMessage message, Flight flights)
         {
-            lock (myLockObject)
-            {
-                foreach (var trip in FlightsDataBase)
-                {
-                    if (trip.Id == flights.Id)
-                    {
-                        flights.Id = GetRandomFlightId();
-                    }
-                }
-            }
 
             if (IsInvalidValue(flights))
             {
@@ -62,7 +56,12 @@ namespace FlightPlannerNew.Models
                 return message.CreateResponse(HttpStatusCode.BadRequest);
             }
 
-            if (FlightsDataBase.Count > 0)
+            //if (IsSameFLight(flights))
+            //{
+            //    return message.CreateResponse(HttpStatusCode.Conflict);
+            //}
+            
+            lock (myLockObject)
             {
                 if (IsSameFLight(flights))
                 {
@@ -72,20 +71,37 @@ namespace FlightPlannerNew.Models
 
             lock (myLockObject)
             {
-                if (IsSameFLight(flights))
+                using (var context = new FlightsDataBaseContext())
                 {
-                    return message.CreateResponse(HttpStatusCode.Conflict);
+                 flights = context.FlightsDataBase.Add(flights);
+                 context.SaveChanges();
+
+                 var newFlight = new FlightWithoutId()
+                 {
+                     Id = flights.Id, 
+                     From = new AirportWithoutId()
+                     {
+                         City = flights.From.City, Country = flights.From.Country, airport = flights.From.airport
+
+                     },
+                     To = new  AirportWithoutId()
+                     {
+                         City = flights.To.City, Country =  flights.To.Country, airport = flights.To.airport
+                     },
+                     Carrier = flights.Carrier,
+                     DepartureTime = flights.DepartureTime,
+                     ArrivalTime = flights.ArrivalTime
+                 };
+                 return message.CreateResponse(HttpStatusCode.Created, newFlight);
                 }
-                FlightsDataBase.Add(flights);
             }
-            return message.CreateResponse(HttpStatusCode.Created, flights);
         }
 
         public static bool IsSameFLight(Flight flight)
         {
-            var flightsDataBaseList = GetToList();
-            
-                return flightsDataBaseList.Any(f => f.ArrivalTime == flight.ArrivalTime &&
+            using (var context = new FlightsDataBaseContext())
+            {
+                return context.FlightsDataBase.Include(f => f.From).Include(f => f.To).ToList().Any(f => f.ArrivalTime == flight.ArrivalTime &&
                                                     f.Carrier == flight.Carrier &&
                                                     f.DepartureTime == flight.DepartureTime &&
                                                     f.From.City == flight.From.City &&
@@ -94,8 +110,7 @@ namespace FlightPlannerNew.Models
                                                     f.To.City == flight.To.City &&
                                                     f.To.Country == flight.To.Country &&
                                                     f.To.airport == flight.To.airport);
-                
-            
+            }
         }
 
         public static bool IsInvalidValue(Flight flight)
@@ -131,43 +146,35 @@ namespace FlightPlannerNew.Models
 
             return false;
         }
-
-        public static int GetRandomFlightId()
-        {
-            var randomNumber = new Random();
-            var flightId = randomNumber.Next(0, 1000000);
-            return flightId;
-        }
-
         public static HttpResponseMessage Delete(HttpRequestMessage message, int id)
         {
             lock (myLockObject)
             {
-                if (FlightsDataBase.Exists(f => f.Id == id))
+                using (var context = new FlightsDataBaseContext())
                 {
-                    var findFlight = FlightsDataBase.FindIndex(f => f.Id == id);
-                    FlightsDataBase.RemoveAt(findFlight);
+                    if (!context.FlightsDataBase.Any(f => f.Id == id))
+                    {
+                        return message.CreateResponse(HttpStatusCode.OK);
+                    }
+                    var flight = context.FlightsDataBase.Include(f => f.From).Include(f => f.To)
+                        .Single(f => f.Id == id);
+                    context.FlightsDataBase.Remove(flight);
+                    context.SaveChanges();
+                    return message.CreateResponse(HttpStatusCode.OK);
                 }
             }
-            return message.CreateResponse(HttpStatusCode.OK);
         }
-
         public static HttpResponseMessage GetTheAirport(HttpRequestMessage message, string searchAirport)
         {
-            var flightsDataBaseList = GetToList();
-            
-                if (flightsDataBaseList == null)
-                {
-                    return message.CreateResponse(HttpStatusCode.NotFound);
-                }
-
-                var lookForAirport = flightsDataBaseList.Where(f =>
-                        f.From.City.ToLower().Contains(searchAirport.ToLower().Trim()) ||
-                        f.From.Country.ToLower().Contains(searchAirport.ToLower().Trim()) ||
-                        f.From.airport.ToLower().Contains(searchAirport.ToLower().Trim()))
-                    .Select(f => new Airport(f.From.Country, f.From.City, f.From.airport));
-
+            using (var context = new FlightsDataBaseContext())
+            {
+                var lookForAirport = context.AirportDataBase.Where(f =>
+                        f.City.ToLower().Contains(searchAirport.ToLower().Trim()) ||
+                        f.Country.ToLower().Contains(searchAirport.ToLower().Trim()) ||
+                        f.airport.ToLower().Contains(searchAirport.ToLower().Trim())).ToList()
+                    .Select(f => new AirportWithoutId() {City = f.City, Country = f.Country, airport = f.airport});
                 return message.CreateResponse(HttpStatusCode.OK, lookForAirport);
+            }
             
             //var airportList = new List<Airport>();
 
@@ -177,38 +184,60 @@ namespace FlightPlannerNew.Models
             //}
 
         }
-
         public static HttpResponseMessage SearchForAirport(HttpRequestMessage message, SearchFlightRequest searchFlight)
         {
-            if (searchFlight.From == searchFlight.To)
+            using (var context = new FlightsDataBaseContext())
             {
-                return message.CreateResponse(HttpStatusCode.BadRequest);
+                if (searchFlight.From == searchFlight.To)
+                {
+                    return message.CreateResponse(HttpStatusCode.BadRequest);
+                }
+                var page = 0;
+                var items = context.FlightsDataBase.Include(f => f.From).Include(f => f.To)
+                    .AsEnumerable().Where(f => f.From.airport == searchFlight.From &&
+                                                           f.To.airport == searchFlight.To &&
+                                                           $"{DateTime.Parse(f.DepartureTime):yyyy-MM-dd}" == searchFlight.DepartureDate).ToList();
+
+                var totalItems = items.Count();
+
+                var pageResult = new PageResult(page, totalItems, items);
+
+                return message.CreateResponse(HttpStatusCode.OK, pageResult);
             }
-
-            var flightsDataBaseList = GetToList();
-            var page = 0;
-            var items = flightsDataBaseList.Where(f => f.From.airport == searchFlight.From &&
-                                                     f.To.airport == searchFlight.To &&
-                                                     $"{DateTime.Parse(f.DepartureTime):yyyy-MM-dd}" == searchFlight.DepartureDate).ToList();
-
-            var  totalItems = items.Count();
-
-            var pageResult = new PageResult(page, totalItems, items);
-
-            return message.CreateResponse(HttpStatusCode.OK, pageResult);
-            }
-        
+        }
         public static HttpResponseMessage SearchFlightById(HttpRequestMessage message, int id)
         {
-            var flightsDataBaseList = GetToList();
+            using (var context = new FlightsDataBaseContext())
+            {
 
-                if (!flightsDataBaseList.Exists(f => f.Id == id))
+                if (!context.FlightsDataBase.Any(f => f.Id == id))
                 {
                     return message.CreateResponse(HttpStatusCode.NotFound);
                 }
-                var findFlightById = flightsDataBaseList.SingleOrDefault(f => f.Id == id);
-                return message.CreateResponse(HttpStatusCode.OK, findFlightById);
-            }
+                var findFlightById = context.FlightsDataBase.Include(f => f.From).Include(f => f.To).SingleOrDefault(f => f.Id == id);
 
+                var newFlight = new FlightWithoutId()
+                {
+                    Id = findFlightById.Id,
+                    From = new AirportWithoutId()
+                    {
+                        City = findFlightById.From.City,
+                        Country = findFlightById.From.Country,
+                        airport = findFlightById.From.airport
+
+                    },
+                    To = new AirportWithoutId()
+                    {
+                        City = findFlightById.To.City,
+                        Country = findFlightById.To.Country,
+                        airport = findFlightById.To.airport
+                    },
+                    Carrier = findFlightById.Carrier,
+                    DepartureTime = findFlightById.DepartureTime,
+                    ArrivalTime = findFlightById.ArrivalTime
+                };
+                return message.CreateResponse(HttpStatusCode.OK, newFlight);
+            }
+        }
     }
 }

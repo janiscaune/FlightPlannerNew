@@ -10,8 +10,15 @@ namespace FlightPlannerNew.Models
     {
         public string Country { get; set; }
         public string City { get; set; }
-        [JsonProperty("airport")] 
+        [JsonProperty(PropertyName = "airport")] 
         public string airport { get; set; }
+
+        public Airport(string country, string city, string airport)
+        {
+            this.Country = country;
+            this.City = city;
+            this.airport = airport;
+        }
 
     }
 }

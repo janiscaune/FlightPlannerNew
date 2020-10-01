@@ -1,31 +1,38 @@
-﻿using System;
-using System.Collections.Generic;
+﻿using System.Net;
+using System.Net.Http;
 using System.Web.Http;
+using FlightPlannerNew.Models;
 
 namespace FlightPlannerNew.Controllers
 {
     public class ApiiController : ApiController
     {
         // GET: api/Apii
-        public IEnumerable<string> Get()
+        [HttpGet, Route("api/airports")]
+        public HttpResponseMessage Get(HttpRequestMessage message, string search)
         {
-            return new string[] { "value1", "value2" };
-        }
-
-        // GET: api/Apii/5
-        public string Get(int id)
-        {
-            return "value";
+            return FlightStorage.GetTheAirport(message, search);
         }
 
         // POST: api/Apii
-        public void Post([FromBody]string value)
+        [HttpPost, Route("api/flights/search")]
+        public HttpResponseMessage Post(HttpRequestMessage message, SearchFlightRequest searchFlight)
         {
+            if (!ModelState.IsValid)
+            {
+                return message.CreateResponse(HttpStatusCode.BadRequest);
+            }
+
+
+            return FlightStorage.SearchForAirport(message, searchFlight);
+
         }
 
         // PUT: api/Apii/5
-        public void Put(int id, [FromBody]string value)
+        [HttpGet, Route("api/flights/{id}")]
+        public HttpResponseMessage Get(HttpRequestMessage message, int id)
         {
+            return FlightStorage.SearchFlightById(message, id);
         }
 
         // DELETE: api/Apii/5
